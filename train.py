@@ -6,7 +6,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 # Import your custom architecture from model.py
-from model import CNNHybridQNN
+from model import CNNHybridQNN, PureClassicalCNN
 
 def get_data_loaders(batch_size=32):
     transform = transforms.Compose([
@@ -62,6 +62,7 @@ if __name__ == "__main__":
     
     # Initialize the imported model
     model = CNNHybridQNN().to(device)
+    # model = PureClassicalCNN().to(device)
     
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss()
@@ -74,5 +75,6 @@ if __name__ == "__main__":
         test(model, device, test_loader, criterion)
     
     # 3. Save the trained weights for the Explainability phase
+    # torch.save(model.state_dict(), "classical_mnist.pth")
     torch.save(model.state_dict(), "hybrid_qnn_mnist.pth")
     print("Training complete. Model weights saved as 'hybrid_qnn_mnist.pth'.")
