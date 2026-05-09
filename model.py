@@ -57,3 +57,32 @@ class CNNHybridQNN(nn.Module):
         x = self.fc_out(x)
         return x
 
+
+class PureClassicalCNN(nn.Module):
+    def __init__(self):
+        super(PureClassicalCNN, self).__init__()
+        
+        # EXACT same encoder as the quantum model
+        self.conv_encoder = nn.Sequential(
+            nn.Conv2d(1, 4, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(4, 8, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Flatten(),
+            nn.Linear(8 * 7 * 7, 4) # The same 4-feature bottleneck
+        )
+        
+        # Classical Output Layer (replacing the quantum layer)
+        self.fc_out = nn.Linear(4, 10) 
+
+    def forward(self, x):
+        x = self.conv_encoder(x)
+        
+        # Standard classical activation instead of the quantum Angle Embedding
+        x = torch.relu(x) 
+        
+        x = self.fc_out(x)
+        return x
+
