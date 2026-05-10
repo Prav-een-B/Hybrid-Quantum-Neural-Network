@@ -20,3 +20,4 @@ This repository explores explainability techniques on both classical and hybrid 
 ## Notes
 - The training script defaults to the hybrid model; switch to the classical baseline by instantiating `PureClassicalCNN` in `train.py`.
 - MNIST will download automatically to `data/` on first run.
+- This is still under development.
