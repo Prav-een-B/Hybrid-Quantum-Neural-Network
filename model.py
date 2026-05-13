@@ -57,6 +57,7 @@ class CNNHybridQNN(nn.Module):
         x = self.fc_out(x)
         return x
 
+# Add this inside model.py
 
 class PureClassicalCNN(nn.Module):
     def __init__(self):
@@ -85,4 +86,3 @@ class PureClassicalCNN(nn.Module):
         
         x = self.fc_out(x)
         return x
-

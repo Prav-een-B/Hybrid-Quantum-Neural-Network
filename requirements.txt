@@ -1,3 +1,5 @@
 torch>=2.0.0
 torchvision>=0.15.0
 pennylane>=0.35.0
+captum>=0.7.0
+matplotlib>=3.7.0

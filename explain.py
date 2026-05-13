@@ -1,14 +1,13 @@
-# explain.py
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
-from captum.attr import GradientShap, IntegratedGradients
+from captum.attr import IntegratedGradients
 from captum.attr import visualization as viz
 
-# Import your architecture
-from model import CNNHybridQNN
+# Import BOTH architectures
+from model import CNNHybridQNN, PureClassicalCNN
 
 def load_test_data():
     transform = transforms.Compose([
@@ -16,71 +15,94 @@ def load_test_data():
         transforms.Normalize((0.1307,), (0.3081,))
     ])
     test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
-    # Batch size 5 just to grab a few samples for visualization
+    # Shuffle ensures we get a random image each time we run the script
     test_loader = DataLoader(test_dataset, batch_size=5, shuffle=True) 
     return next(iter(test_loader))
 
 if __name__ == "__main__":
-    # 1. Setup Device and Load Model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Running XAI on: {device}")
+    print(f"Running Comparative XAI on: {device}")
     
-    model = CNNHybridQNN().to(device)
-    model.load_state_dict(torch.load("hybrid_qnn_mnist.pth", map_location=device))
-    model.eval() # CRITICAL: Put model in evaluation mode
+    # 1. Load the Quantum Model
+    q_model = CNNHybridQNN().to(device)
+    q_model.load_state_dict(torch.load("hybrid_qnn_mnist.pth", map_location=device))
+    q_model.eval()
 
-    # 2. Get Sample Data
+    # 2. Load the Classical Twin
+    c_model = PureClassicalCNN().to(device)
+    c_model.load_state_dict(torch.load("classical_cnn_mnist.pth", map_location=device))
+    c_model.eval()
+
+    # 3. Get ONE specific image to test on both
     images, labels = load_test_data()
     images, labels = images.to(device), labels.to(device)
 
-    # We will pick the first image in our random batch to explain
     target_image = images[0].unsqueeze(0) # Shape: [1, 1, 28, 28]
     target_label = labels[0].item()
     
-    # Run a quick prediction to see what the model thinks it is
+    # Quick sanity check on predictions
     with torch.no_grad():
-        pred = model(target_image)
-        pred_label = pred.argmax(dim=1).item()
+        q_pred = q_model(target_image).argmax(dim=1).item()
+        c_pred = c_model(target_image).argmax(dim=1).item()
     
-    print(f"True Label: {target_label} | Model Predicted: {pred_label}")
+    print(f"True Label: {target_label} | Quantum Pred: {q_pred} | Classical Pred: {c_pred}")
 
-    # 3. Initialize Explainability Methods (GradientSHAP & Integrated Gradients)
-    # We use a baseline of zeros (a black image) to compare our actual image against
-    baseline = torch.zeros_like(target_image).to(device)
-    
-    print("Calculating Integrated Gradients (this involves quantum simulation, may take a minute...)")
-    ig = IntegratedGradients(model)
-    
-    # Calculate attributions for the predicted class
-    attributions_ig = ig.attribute(target_image, target=pred_label, n_steps=10)
+    # 4. Calculate Integrated Gradients for BOTH
+    print("Calculating Quantum Gradients...")
+    ig_q = IntegratedGradients(q_model)
+    attr_q = ig_q.attribute(target_image, target=target_label, n_steps=10)
 
-    # 4. Visualization & Plotting
-    # Convert tensors to numpy arrays for Matplotlib (shape: 28x28)
+    print("Calculating Classical Gradients...")
+    ig_c = IntegratedGradients(c_model)
+    attr_c = ig_c.attribute(target_image, target=target_label, n_steps=10)
+
+    # Convert to numpy for plotting
     original_img_np = target_image.squeeze().cpu().detach().numpy()
-    attr_ig_np = attributions_ig.squeeze().cpu().detach().numpy()
+    attr_q_np = attr_q.squeeze().cpu().detach().numpy()
+    attr_c_np = attr_c.squeeze().cpu().detach().numpy()
 
-    # Create the plot
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    # --- ZERO-GRADIENT SAFETY CHECKS ---
+    if np.max(np.abs(attr_q_np)) == 0.0:
+        print("[!] Quantum model returned zero gradients.")
+        attr_q_np += 1e-12 
+        
+    if np.max(np.abs(attr_c_np)) == 0.0:
+        print("[!] WARNING: Classical model went 'blind' (Dead ReLUs).")
+        attr_c_np += 1e-12 
+    # -----------------------------------
+
+    # 5. Build the 3-Panel Figure
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     
-    # Plot Original Image
+    # Panel 1: Original Image
     axes[0].imshow(original_img_np, cmap='gray')
-    axes[0].set_title(f"Original Image\nTrue: {target_label} | Pred: {pred_label}")
+    axes[0].set_title(f"Original Image\nTrue Label: {target_label}")
     axes[0].axis('off')
     
-    # Plot Saliency Map overlay (Heatmap)
-    # Red pixels = pushed the model toward this prediction
-    # Blue pixels = pushed the model away from this prediction
+    # Panel 2: Quantum Heatmap
     viz.visualize_image_attr(
-        np.expand_dims(attr_ig_np, axis=2), 
+        np.expand_dims(attr_q_np, axis=2), 
+        np.expand_dims(original_img_np, axis=2), 
+        method="blended_heat_map", 
+        sign="all", 
+        show_colorbar=False, 
+        title=f"Quantum Map (Pred: {q_pred})",
+        plt_fig_axis=(fig, axes[1]),
+        use_pyplot=False
+    )
+
+    # Panel 3: Classical Heatmap
+    viz.visualize_image_attr(
+        np.expand_dims(attr_c_np, axis=2), 
         np.expand_dims(original_img_np, axis=2), 
         method="blended_heat_map", 
         sign="all", 
         show_colorbar=True, 
-        title="Quantum Interpretability Map",
-        plt_fig_axis=(fig, axes[1]),
+        title=f"Classical Map (Pred: {c_pred})",
+        plt_fig_axis=(fig, axes[2]),
         use_pyplot=False
     )
     
     plt.tight_layout()
-    plt.savefig("quantum_explain_output.png", dpi=300)
-    print("Saved explainability map as 'quantum_explain_output.png'!")
+    plt.savefig("benchmark_comparison.png", dpi=300)
+    print("Saved side-by-side comparison as 'benchmark_comparison.png'!")
